@@ -13,12 +13,11 @@
 //! [`Command`]: iced_native::Command
 
 use iced_futures::MaybeSend;
-use std::path::PathBuf;
 use std::fmt;
+use std::path::PathBuf;
 
 /// An action which triggers a dialog to open, and resolves when it closes
 pub enum Action<Msg> {
-
     /// Produce a message dialog
     ///
     /// These dialogs normally take the form of a small window with a message
@@ -50,7 +49,6 @@ pub enum MessageDialogVariant<Msg> {
     /// These are yes/no or confirm/cancel dialog boxes.  They normally take the
     /// form of a small pop-up with a title, brief message, and two buttons.
     Confirmation {
-
         /// The message that will be produced when the user closes the dialog
         ///
         /// If the user selected Yes/Okay, then `true` will be passed to the
@@ -83,10 +81,10 @@ pub struct FileDialogOptions {}
 /// dialogs, and the options that accompany each.  Different kinds of dialogs
 /// may produce messages in different ways
 pub enum FileDialogVariant<Msg> {
-
     /// Open a single file dialog
     ///
     /// This selects a single file path, for either saving or opening
+    #[doc(alias = "SaveDialog")]
     SingleFileDialog {
         /// Whether this is a save dialog, as opposed to an open dialog
         ///
