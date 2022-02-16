@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::fmt;
 
 /// An action which triggers a dialog to open, and resolves when it closes
-#[derive(Debug)]
 pub enum Action<Msg> {
 
     /// Produce a message dialog
@@ -67,10 +66,10 @@ pub enum MessageDialogVariant<Msg> {
     ///
     /// Like the confirmation message dialog, this is a small pop-up with a
     /// title and a brief message, but the only option is an "Okay" button.
-    Informational {
+    Informational(
         /// The message produced when the user closes the dialog
-        on_close: Msg,
-    },
+        Msg,
+    ),
 }
 
 /// Assorted options and filters that can be applied to any kind of file dialog
@@ -89,10 +88,6 @@ pub enum FileDialogVariant<Msg> {
     ///
     /// This selects a single file path, for either saving or opening
     SingleFileDialog {
-
-        /// Options that apply to all file dialogs
-        options: FileDialogOptions,
-
         /// Whether this is a save dialog, as opposed to an open dialog
         ///
         /// When set to `true`, the user will be able to select a non-existant
@@ -114,36 +109,28 @@ pub enum FileDialogVariant<Msg> {
     ///
     /// This allows a user to select as many files as they please, but it cannot
     /// be used for a save operation.
-    MultiFileDialog {
-
-        /// Options that apply to all file dialogs
-        options: FileDialogOptions,
-
+    MultiFileDialog(
         /// The message that will be produced when the dialog is closed.
         ///
         /// If the user selected one or more files, then the function will be
         /// passed a [`Vec`] of file paths.  If the user closed the dialog
         /// without selecting any files, (for example, by cancelling), then the
         /// [`Vec`] will be empty.
-        on_select: Box<dyn FnOnce(Vec<PathBuf>) -> Msg>,
-    },
+        Box<dyn FnOnce(Vec<PathBuf>) -> Msg>,
+    ),
 
     /// Open a file dialog that can open an entire folder.
     ///
     /// Instead of selecting just one file, allow the user to select a
     /// directory.
-    FolderSelectDialog {
-
-        /// Options that apply to all file dialogs
-        options: FileDialogOptions,
-
+    FolderSelectDialog(
         /// The message that will be produced when the dialog is closed.
         ///
         /// If the user selected a file, then [`Some`] will be passed, along
         /// with the path of the selected file.  If the user closed the dialog
         /// without selecting a file, then [`None`] will be passed instead.
-        on_select: Box<dyn FnOnce(Option<PathBuf>) -> Msg>,
-    }
+        Box<dyn FnOnce(Option<PathBuf>) -> Msg>,
+    ),
 }
 
 impl<Msg> Action<Msg> {
@@ -151,47 +138,116 @@ impl<Msg> Action<Msg> {
     pub fn map<MappedMsg, Mapper>(self, f: Mapper) -> Action<MappedMsg>
     where
         Msg: 'static,
-        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync
+        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync,
     {
         match self {
-            Self::MessageDialog(options, variant) =>
-                Action::MessageDialog(options, variant.map(f)),
-            Self::FileDialog(options, variant) =>
-                Action::FileDialog(options, variant.map(f)),
+            Self::MessageDialog(options, variant) => {
+                Action::MessageDialog(options, variant.map(f))
+            }
+            Self::FileDialog(options, variant) => {
+                Action::FileDialog(options, variant.map(f))
+            }
         }
     }
 }
 
 impl<Msg> MessageDialogVariant<Msg> {
     /// Apply some transformation to the message produced by this variant
-    pub fn map<MappedMsg, Mapper>(self, f: Mapper) -> MessageDialogVariant<MappedMsg>
+    pub fn map<MappedMsg, Mapper>(
+        self,
+        f: Mapper,
+    ) -> MessageDialogVariant<MappedMsg>
     where
         Msg: 'static,
-        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync
+        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync,
     {
-        todo!()
+        match self {
+            Self::Confirmation {
+                on_close,
+                is_yes_no,
+            } => MessageDialogVariant::Confirmation {
+                on_close: Box::new(move |choice| f(on_close(choice))),
+                is_yes_no,
+            },
+            Self::Informational(on_close) => {
+                MessageDialogVariant::Informational(f(on_close))
+            }
+        }
     }
 }
 
 impl<Msg> FileDialogVariant<Msg> {
     /// Apply some transformation to the message produced by this variant
-    pub fn map<MappedMsg, Mapper>(self, f: Mapper) -> FileDialogVariant<MappedMsg>
+    pub fn map<MappedMsg, Mapper>(
+        self,
+        f: Mapper,
+    ) -> FileDialogVariant<MappedMsg>
     where
         Msg: 'static,
-        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync
+        Mapper: FnOnce(Msg) -> MappedMsg + 'static + MaybeSend + Sync,
     {
-        todo!();
+        match self {
+            Self::SingleFileDialog {
+                is_save_dialog,
+                on_select,
+            } => FileDialogVariant::SingleFileDialog {
+                on_select: Box::new(|file| f(on_select(file))),
+                is_save_dialog,
+            },
+            Self::MultiFileDialog(on_select) => {
+                FileDialogVariant::MultiFileDialog(Box::new(|files| {
+                    f(on_select(files))
+                }))
+            }
+            Self::FolderSelectDialog(on_select) => {
+                FileDialogVariant::FolderSelectDialog(Box::new(|folder| {
+                    f(on_select(folder))
+                }))
+            }
+        }
+    }
+}
+
+impl<T> fmt::Debug for Action<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Action::MessageDialog(options, variant) => {
+                write!(f, "MessageDialog({:?}, {:?})", options, variant)
+            }
+            Action::FileDialog(options, variant) => {
+                write!(f, "FileDialog({:?}, {:?})", options, variant)
+            }
+        }
     }
 }
 
 impl<T> fmt::Debug for MessageDialogVariant<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            Self::Confirmation {
+                is_yes_no: true, ..
+            } => write!(f, "Confirmation(Yes/No)"),
+            Self::Confirmation {
+                is_yes_no: false, ..
+            } => write!(f, "Confirmation(Okay/Cancel)"),
+            Self::Informational { .. } => write!(f, "Informational"),
+        }
     }
 }
 
 impl<T> fmt::Debug for FileDialogVariant<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            Self::SingleFileDialog {
+                is_save_dialog: true,
+                ..
+            } => write!(f, "SingleFileDialog(open)"),
+            Self::SingleFileDialog {
+                is_save_dialog: false,
+                ..
+            } => write!(f, "SingleFileDialog(save)"),
+            Self::MultiFileDialog { .. } => write!(f, "MultiFileDialog"),
+            Self::FolderSelectDialog { .. } => write!(f, "FolderSelectDialog"),
+        }
     }
 }
