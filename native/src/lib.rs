@@ -38,6 +38,7 @@
 #![forbid(rust_2018_idioms)]
 pub mod clipboard;
 pub mod command;
+pub mod dialog;
 pub mod event;
 pub mod image;
 pub mod keyboard;
