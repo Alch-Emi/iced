@@ -12,8 +12,8 @@
 //!
 //! [`Command`]: iced_native::Command
 
+use crate::Command;
 use iced_futures::MaybeSend;
-use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::fmt;
 use std::path::PathBuf;
@@ -28,7 +28,7 @@ pub enum Action<Msg> {
         MessageDialogOptions,
         MessageDialogVariant<Msg>,
         /// The message that the message dialog should display
-        Option<Cow<'static, str>>,
+        Cow<'static, str>,
     ),
 
     /// Produce a file dialog
@@ -42,7 +42,7 @@ pub enum Action<Msg> {
 }
 
 /// Various options common to all message dialogs
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct MessageDialogOptions {
     /// The severity to associate with this dialog
     pub level: MessageLevel,
@@ -52,19 +52,27 @@ pub struct MessageDialogOptions {
 }
 
 impl MessageDialogOptions {
-    /// Create a new message dialog with a severity of INFO
-    pub const fn new() -> Self {
+    /// Options for a message dialog with a severity of INFO
+    pub const fn info() -> Self {
         Self {
             level: MessageLevel::Info,
             title: None,
         }
     }
 
-    /// Create a new message dialog with a severity of INFO and the given title
-    pub const fn new_with_title(title: &'static str) -> Self {
+    /// Options for a message dialog with a severity of WARNING
+    pub const fn warning() -> Self {
         Self {
-            level: MessageLevel::Info,
-            title: Some(Cow::Borrowed(title)),
+            level: MessageLevel::Warning,
+            title: None,
+        }
+    }
+
+    /// Options for a message dialog with a severity of ERROR
+    pub const fn error() -> Self {
+        Self {
+            level: MessageLevel::Error,
+            title: None,
         }
     }
 
@@ -80,10 +88,190 @@ impl MessageDialogOptions {
     pub fn with_level(self, level: MessageLevel) -> Self {
         Self { level, ..self }
     }
+
+    /// Show a confirmation dialog with these settings
+    ///
+    /// The on_close function determines the message that is produced when the
+    /// dialog is closed. If the user clicked "Okay", then `true` will be
+    /// passed.  Otherwise, the function will receive `false`
+    ///
+    /// The `is_yes_no` option sets the names of the buttons to be "Yes" and
+    /// "No", rather than "Okay" and "Cancel".
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::MessageDialogOptions;
+    /// # use iced_native::dialog::{Action, MessageDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMessageType {
+    ///     DialogClosed(bool)
+    /// }
+    ///
+    /// let command = MessageDialogOptions::info()
+    ///     .show_confirmation_dialog(
+    ///         YourMessageType::DialogClosed,
+    ///         true, // We want the prompts to say "Yes" or "No"
+    ///         "Hello world!"
+    ///     );
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::MessageDialog(options, variant, message) = action {
+    /// #     assert_eq!(options, MessageDialogOptions::info());
+    /// #     assert_eq!(&*message, "Hello world!");
+    /// #     if let MessageDialogVariant::Confirmation {on_close, is_yes_no} = variant {
+    /// #       assert!(is_yes_no);
+    /// #       if let YourMessageType::DialogClosed(true) = on_close(true) {} else {
+    /// #         panic!("on_close message unexpected behaviour");
+    /// #       }
+    /// #     } else {
+    /// #       panic!("Unexpected message dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    /// ```
+    pub fn show_confirmation_dialog<Msg>(
+        self,
+        on_close: impl FnOnce(bool) -> Msg + 'static,
+        is_yes_no: bool,
+        message: impl Into<Cow<'static, str>>,
+    ) -> Command<Msg> {
+        let variant = MessageDialogVariant::Confirmation {
+            on_close: Box::new(on_close),
+            is_yes_no,
+        };
+        Action::MessageDialog(self, variant, message.into()).into()
+    }
+
+    /// Show an informational message dialog with these settings
+    ///
+    /// Whereas a message confirmation message dialog has two choices, an
+    /// informational message dialog only has one.
+    ///
+    /// Once the user closes the dialog, either by hitting the button or by
+    /// pressing Esc, the `on_close` parameter will be sent to your application
+    /// as a message.
+    ///
+    /// Despite the name, informational popups can have any severity level, not
+    /// just INFO.
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::MessageDialogOptions;
+    /// # use iced_native::dialog::{Action, MessageDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMessageType {
+    ///     DialogClosed,
+    /// }
+    ///
+    /// let command = MessageDialogOptions::error()
+    ///     .show_informational_dialog(
+    ///         YourMessageType::DialogClosed,
+    ///         "Some awful error happened!"
+    ///     );
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::MessageDialog(options, variant, message) = action {
+    /// #     assert_eq!(options, MessageDialogOptions::error());
+    /// #     assert_eq!(&*message, "Some awful error happened!");
+    /// #     if let MessageDialogVariant::Informational(
+    /// #       YourMessageType::DialogClosed
+    /// #     ) = variant { } else {
+    /// #       panic!("Unexpected message dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    /// ```
+    pub fn show_informational_dialog<Msg>(
+        self,
+        on_close: Msg,
+        message: impl Into<Cow<'static, str>>,
+    ) -> Command<Msg> {
+        let variant = MessageDialogVariant::Informational(on_close);
+        Action::MessageDialog(self, variant, message.into()).into()
+    }
+}
+
+/// A shorthand for showing a simple error popup
+///
+/// This creates a message dialog with only one option (Okay), and the provided
+/// message.  Once the dialog is closed, the `Msg` type you pass as the second
+/// argumment will be sent to your application.
+///
+/// For more fine grained control over the message dialog, see the
+/// [`MessageDialogOptions`] struct and its available methods.
+///
+/// ## Example
+/// ```
+/// use iced_native::dialog::error;
+///
+/// enum YourMsgType {
+///     ErrorAcknowledged
+/// }
+///
+/// // (within the update() method of your application)
+/// let command = error("Oh noes!!!", YourMsgType::ErrorAcknowledged);
+///
+/// // then, return command from your method.  When you get an ErrorAcknowledged
+/// // message, you'll know to proceed.
+/// ```
+pub fn error<Msg>(
+    error_msg: impl Into<Cow<'static, str>>,
+    on_close: Msg,
+) -> Command<Msg> {
+    MessageDialogOptions::error().show_informational_dialog(on_close, error_msg)
+}
+
+/// A shorthand for showing a simple confirmation dialog
+///
+/// This produces a pop-up with an "Okay" and a "Cancel" option, alongside the
+/// message that you provide.  Once the user selects an option (or implicitly
+/// cancels by closing the window) the `on_close` function will be called, and
+/// the `Msg` it produces will be sent to your appliaction.  If the user
+/// selected "Okay", then the function will be called with `true`.  Otherwise,
+/// it will recieve `false`.
+///
+/// For more fine grained control over the message dialog, see the
+/// [`MessageDialogOptions`] struct and its available methods.
+///
+/// ## Example
+/// ```
+/// use iced_native::dialog::confirmation;
+///
+/// enum YourMsgType {
+///     DialogClosed(bool)
+/// }
+///
+/// // (within the update() method of your application)
+/// let command = confirmation("Do you like waffles?", YourMsgType::DialogClosed);
+///
+/// // then, return command from your method.  When you get a DialogClosed(true)
+/// // message, then you'll know the user hit "Okay".  If you get
+/// // DialogClosed(false), the user hit cancel or closed the popup.
+/// ```
+pub fn confirmation<Msg>(
+    error_msg: impl Into<Cow<'static, str>>,
+    on_close: impl FnOnce(bool) -> Msg + 'static,
+) -> Command<Msg> {
+    MessageDialogOptions::error()
+        .show_confirmation_dialog(on_close, false, error_msg)
 }
 
 /// Possible severity levels for message dialogs
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum MessageLevel {
     /// Give the user some information
     ///
@@ -212,6 +400,14 @@ impl FileDialogOptions {
 /// looking for easier.  However, these filters don't restrict the user, so
 /// there's no guarantee that the selected file will comply with one of the
 /// filters.
+///
+/// The recommended way of creating a filter is to use either the
+/// [`new_const()`][] or [`new()`][] methods rather than directly constructing
+/// the enum.  Several constant filters are also available for common file
+/// types.
+///
+/// [`new_const()`]: Self::new_const
+/// [`new()`]: Self::new
 #[derive(Debug, Clone)]
 pub enum Filter {
     /// The normal form of a filter, with owned values for names and extensions
@@ -235,6 +431,36 @@ pub enum Filter {
 }
 
 impl Filter {
+    /// Filter for raster image files
+    ///
+    /// Includes the following file extensions:
+    /// - webp
+    /// - png
+    /// - jpg/jpeg
+    /// - gif
+    /// - tiff
+    pub const IMAGE_FILES: Filter = Filter::new_const(
+        "Images",
+        &["webp", "png", "jpg", "jpeg", "gif", "tiff"],
+    );
+
+    /// Filter for audio files
+    ///
+    /// Includes the following file extensions:
+    /// - mp3
+    /// - wav
+    /// - ogg
+    /// - flac
+    /// - aac
+    pub const AUDIO_FILES: Filter =
+        Filter::new_const("Audio", &["mp3", "wav", "ogg", "flac", "aac"]);
+
+    /// Filter for text files
+    ///
+    /// Includes the following file extensions:
+    /// - txt
+    pub const TEXT_FILES: Filter = Filter::new_const("Text", &["txt"]);
+
     /// Construct a new [`Filter`] using `&'static str`s
     ///
     /// ## Example
@@ -379,6 +605,12 @@ impl<Msg> Action<Msg> {
     }
 }
 
+impl<Msg> From<Action<Msg>> for Command<Msg> {
+    fn from(action: Action<Msg>) -> Command<Msg> {
+        Command::single(crate::command::Action::Dialog(action))
+    }
+}
+
 impl<Msg> MessageDialogVariant<Msg> {
     /// Apply some transformation to the message produced by this variant
     pub fn map<MappedMsg, Mapper>(
@@ -443,9 +675,7 @@ impl<T> fmt::Debug for Action<T> {
                 write!(
                     f,
                     "MessageDialog({:?}, {:?} {:?})",
-                    options,
-                    variant,
-                    text.borrow()
+                    options, variant, *text,
                 )
             }
             Action::FileDialog(options, variant) => {
