@@ -322,7 +322,7 @@ pub enum MessageDialogVariant<Msg> {
 }
 
 /// Assorted options and filters that can be applied to any kind of file dialog
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct FileDialogOptions {
     /// A list of filters that should be available to the user
     ///
@@ -388,6 +388,308 @@ impl FileDialogOptions {
             ..self
         }
     }
+
+    /// Open a save dialog with these settings
+    ///
+    /// Outputs a [`Command`] which opens a save dialog with these settings.
+    /// The `on_select` parameter is used to control what message is produced
+    /// once the dialog is closed.  If the user selects a destination, a
+    /// [`PathBuf`] will be passed.  If they cancel the operation, [`None`] will
+    /// be passed instead.
+    ///
+    /// The function can then choose to return a message (which will be
+    /// forwarded to the application), or return [`None`], which causes no
+    /// message to be produced, effectively ignoring the event.
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::FileDialogOptions;
+    /// use std::path::PathBuf;
+    /// # use iced_native::dialog::{Action, FileDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMsgType {
+    ///     DestinationSelected(PathBuf),
+    ///     CancelSave,
+    /// }
+    ///
+    /// let command = FileDialogOptions::new()
+    ///     .show_save_dialog(
+    ///         |maybe_path| maybe_path.map_or (
+    ///             YourMsgType::CancelSave,
+    ///             YourMsgType::DestinationSelected
+    ///         )
+    ///     );
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::FileDialog(options, variant) = action {
+    /// #     assert_eq!(options, FileDialogOptions::new());
+    /// #     if let FileDialogVariant::SingleFileDialog {on_select, is_save_dialog} = variant {
+    /// #       assert!(is_save_dialog);
+    /// #       if let YourMsgType::CancelSave = on_select(None) {} else {
+    /// #         panic!("on_close message unexpected behaviour");
+    /// #       }
+    /// #     } else {
+    /// #       panic!("Unexpected file dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    pub fn show_save_dialog<Msg>(
+        self,
+        on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+    ) -> Command<Msg> {
+        let variant = FileDialogVariant::SingleFileDialog {
+            on_select: Box::new(on_select),
+            is_save_dialog: true,
+        };
+        Action::FileDialog(self, variant).into()
+    }
+
+    /// Open an open file dialog with these settings
+    ///
+    /// Outputs a [`Command`] which opens a file dialog with these settings.
+    /// The `on_select` parameter is used to control what message is produced
+    /// once the dialog is closed.  If the user selects a file, a [`PathBuf`]
+    /// will be passed.  If they cancel the operation, [`None`] will be passed
+    /// instead.
+    ///
+    /// The function can then choose to return a message (which will be
+    /// forwarded to the application), or return [`None`], which causes no
+    /// message to be produced, effectively ignoring the event.
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::FileDialogOptions;
+    /// use std::path::PathBuf;
+    /// # use iced_native::dialog::{Action, FileDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMsgType {
+    ///     FileSelected(PathBuf),
+    ///     CancelSave,
+    /// }
+    ///
+    /// let command = FileDialogOptions::new()
+    ///     .select_single(
+    ///         |maybe_path| maybe_path.map_or (
+    ///             YourMsgType::CancelSave,
+    ///             YourMsgType::FileSelected
+    ///         )
+    ///     );
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::FileDialog(options, variant) = action {
+    /// #     assert_eq!(options, FileDialogOptions::new());
+    /// #     if let FileDialogVariant::SingleFileDialog {on_select, is_save_dialog} = variant {
+    /// #       assert!(!is_save_dialog);
+    /// #       if let YourMsgType::CancelSave = on_select(None) {} else {
+    /// #         panic!("on_close message unexpected behaviour");
+    /// #       }
+    /// #     } else {
+    /// #       panic!("Unexpected file dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    pub fn select_single<Msg>(
+        self,
+        on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+    ) -> Command<Msg> {
+        let variant = FileDialogVariant::SingleFileDialog {
+            on_select: Box::new(on_select),
+            is_save_dialog: false,
+        };
+        Action::FileDialog(self, variant).into()
+    }
+
+    /// Open an open file dialog to select one **or more** files
+    ///
+    /// Outputs a [`Command`] which opens a file dialog with these settings.
+    /// The `on_select` parameter is used to control what message is produced
+    /// once the dialog is closed.  If the user selects a destination, a
+    /// [`Vec`] of [`PathBuf`] will be passed, with one path for each file
+    /// selected.  If they cancel the operation, an empty [`Vec`] will be
+    /// passed.
+    ///
+    /// The function can then choose to return a message (which will be
+    /// forwarded to the application), or return [`None`], which causes no
+    /// message to be produced, effectively ignoring the event.
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::FileDialogOptions;
+    /// use std::path::PathBuf;
+    /// # use iced_native::dialog::{Action, FileDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMsgType {
+    ///     FilesSelected(Vec<PathBuf>),
+    /// }
+    ///
+    /// let command = FileDialogOptions::new()
+    ///     .select_multi(YourMsgType::FilesSelected);
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::FileDialog(options, variant) = action {
+    /// #     assert_eq!(options, FileDialogOptions::new());
+    /// #     if let FileDialogVariant::MultiFileDialog(on_select) = variant {
+    /// #       if let YourMsgType::FilesSelected(v) = on_select(Vec::new()) {} else {
+    /// #         panic!("on_close message unexpected behaviour");
+    /// #       }
+    /// #     } else {
+    /// #       panic!("Unexpected file dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    ///
+    /// let message = // received in your update() function
+    /// # YourMsgType::FilesSelected(Vec::new());
+    ///
+    /// match message {
+    ///     YourMsgType::FilesSelected(files) if files.is_empty() => {
+    ///         // The used canceled the dialog!
+    ///     }
+    ///     YourMsgType::FilesSelected(files) => {
+    ///         // The used selected one or more files
+    ///     }
+    /// }
+    pub fn select_multi<Msg>(
+        self,
+        on_select: impl FnOnce(Vec<PathBuf>) -> Msg + 'static
+    ) -> Command<Msg> {
+        let variant = FileDialogVariant::MultiFileDialog(Box::new(on_select));
+        Action::FileDialog(self, variant).into()
+    }
+
+    /// Open a folder select dialog with these settings
+    ///
+    /// Outputs a [`Command`] which opens a folder selection dialog with these
+    /// settings.  The `on_select` parameter is used to control what message is
+    /// produced once the dialog is closed.  If the user selects a folder, a
+    /// [`PathBuf`] will be passed.  If they cancel the operation, [`None`] will
+    /// be passed instead.
+    ///
+    /// The function can then choose to return a message (which will be
+    /// forwarded to the application), or return [`None`], which causes no
+    /// message to be produced, effectively ignoring the event.
+    ///
+    /// ## Example
+    /// ```
+    /// use iced_native::dialog::FileDialogOptions;
+    /// use std::path::PathBuf;
+    /// # use iced_native::dialog::{Action, FileDialogVariant};
+    /// # use iced_native::command::{self, Command};
+    ///
+    /// enum YourMsgType {
+    ///     FolderSelected(PathBuf),
+    ///     CancelSave,
+    /// }
+    ///
+    /// let command = FileDialogOptions::new()
+    ///     .select_folder(
+    ///         |maybe_path| maybe_path.map_or (
+    ///             YourMsgType::CancelSave,
+    ///             YourMsgType::FolderSelected
+    ///         )
+    ///     );
+    ///
+    /// # let mut actions = command.actions();
+    /// # assert_eq!(actions.len(), 1);
+    /// # if let Some(command::Action::Dialog(action)) = actions.pop() {
+    /// #   if let Action::FileDialog(options, variant) = action {
+    /// #     assert_eq!(options, FileDialogOptions::new());
+    /// #     if let FileDialogVariant::FolderSelectDialog(on_select) = variant {
+    /// #       if let YourMsgType::CancelSave = on_select(None) {} else {
+    /// #         panic!("on_close message unexpected behaviour");
+    /// #       }
+    /// #     } else {
+    /// #       panic!("Unexpected file dialog variant");
+    /// #     }
+    /// #   } else {
+    /// #     panic!("Unexpected dialog type");
+    /// #   }
+    /// # } else {
+    /// #   panic!("Unexpected action type");
+    /// # }
+    pub fn select_folder<Msg>(
+        self,
+        on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+    ) -> Command<Msg> {
+        let variant =
+            FileDialogVariant::FolderSelectDialog(Box::new(on_select));
+        Action::FileDialog(self, variant).into()
+    }
+}
+
+/// Open a file selector for a single kind of file
+///
+/// This is a convenience wrapper around [`FileDialogOptions::select_single()`]
+pub fn select_file<Msg>(
+    on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+) -> Command<Msg> {
+    FileDialogOptions::new().select_single(on_select)
+}
+
+/// Open a file selector for a single kind of file
+///
+/// This is a convenience wrapper around [`FileDialogOptions::select_single()`].
+///
+/// You'll need a [`Filter`] in order to specify the kind of file you want.
+/// You can either select one of the pre-made filters associated with the
+/// [`Filter`] struct, or construct your own, like this:
+///
+/// ```
+/// use iced_native::dialog::select_file_of_type;
+/// use iced_native::dialog::Filter;
+/// use std::path::PathBuf;
+///
+/// // Look for .me files
+/// let my_custom_filetype = Filter::new_const("My cool filetype", &["me"]);
+///
+/// enum MyMsg {
+///     FileSelected(PathBuf),
+///     SelectionCanceled,
+/// }
+///
+/// select_file_of_type(
+///     my_custom_filetype,
+///     |p| p.map_or(MyMsg::SelectionCanceled, MyMsg::FileSelected),
+/// );
+/// ```
+pub fn select_file_of_type<Msg>(
+    kind: Filter,
+    on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+) -> Command<Msg> {
+    FileDialogOptions::new()
+        .add_filter(kind)
+        .select_single(on_select)
+}
+
+/// Open a file save dialog
+///
+/// This is a convenience wrapper around
+/// [`FileDialogOptions::show_save_dialog()`]
+pub fn save_file<Msg>(
+    on_select: impl FnOnce(Option<PathBuf>) -> Msg + 'static
+) -> Command<Msg> {
+    FileDialogOptions::new().show_save_dialog(on_select)
 }
 
 /// A filter for the kinds of files that can be selected from a file dialog
@@ -408,7 +710,7 @@ impl FileDialogOptions {
 ///
 /// [`new_const()`]: Self::new_const
 /// [`new()`]: Self::new
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Filter {
     /// The normal form of a filter, with owned values for names and extensions
     Owned {
